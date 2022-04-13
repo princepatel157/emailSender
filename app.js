@@ -2,14 +2,11 @@ const express = require("express");
 const app = express();
 const router = express.Router();
 var mysql = require("mysql");
-const sendgrid = require('@sendgrid/mail');
-const SENDGRID_API_KEY = "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";
-sendgrid.setApiKey(SENDGRID_API_KEY);
 const cron = require('node-cron');
+const sendMail=require("./email");
 
 
 app.use(express.json());
-
 // db connection
 var con = mysql.createConnection({
   host: "localhost",
@@ -32,11 +29,6 @@ con.connect(function (err) {
 //     console.log("Table created");
 //   });
 // });
-
-//api requests
-app.get("/", (req, res) => {
-  res.send("hello from backend get request");
-});
 
 
 // adding a user
@@ -150,15 +142,25 @@ router.get("/filtergender",(req,res)=>{
 router.get("/sendmail",(req,res)=>{
   var {filter}=req.body;
 
-  var sql="SELECT email FROM users WHERE (gender=?)";
+  var sql="SELECT username, email FROM users WHERE (gender=?)";
+  var sql3="INSERT INTO reports(username,report) VALUES(?,?)";
+  var timing="Task Scheduled at: "+new Date();
   con.query(sql,[filter],(err,result)=>{
   if(err) throw err;
   else{
     result.forEach((item,index,arr)=>{
-      console.log(item);
-      sendMail(item.email);
-      console.log("email sent")
+      console.log(item.email);
+      sendMail.sendMail(item.email);
+      console.log("email sent");
+      con.query(sql3,[item.username,timing],(err,result)=>{
+        if(err) throw err;
+        else{
+          res.send("reported");
+        }
+      })
     })
+    res.send("email send");
+    
   }
   })
 })
@@ -168,29 +170,34 @@ router.get("/sendmail",(req,res)=>{
 router.post("/schedulemail",(req,res)=>{
   var {filter,task}=req.body;
 
-  var sql="SELECT username FROM users WHERE (gender=?)";
+  var sql="SELECT username, email FROM users WHERE (gender=?)";
   con.query(sql,[filter],(err,result)=>{
   if(err) throw err;
   else{
+    
     var sql2="INSERT INTO tasks(username,task,time) VALUES(?,?,?)";
     var sql3="INSERT INTO reports(username,report) VALUES(?,?)";
     var timing="Task Scheduled at: "+new Date();
 
     result.forEach((item,index,arr)=>{
       console.log(item.username);
-      con.query(sql2,[item.username,task,new Date()],(err,result)=>{
-        if(err) throw err;
-        else{
-          res.send("task scheduled");
-        }
-      })
-      con.query(sql3,[item.username,timing],(err,result)=>{
-        if(err) throw err;
-        else{
-          res.send("reported");
-        }
-      })
-      res.send("tasks scheduled");
+      console.log(item.email);
+      cron.schedule('0.1 * * * * *', () => {
+        sendMail.sendMail(item.email);
+        con.query(sql2,[item.username,task,new Date()],(err,result)=>{
+          if(err) throw err;
+          else{
+            res.send("task scheduled");
+          }
+        })
+        con.query(sql3,[item.username,timing],(err,result)=>{
+          if(err) throw err;
+          else{
+            res.send("reported");
+          }
+        })
+        res.send("tasks scheduled");
+        });
     })
   }
   })
@@ -221,9 +228,7 @@ router.get("/reports",(req,res)=>{
     con.query(sql,[username],(err, result) => {
       if (err) throw err;
       else{
-        result.forEach((item)=>{
-          res.send(item);
-        })
+        res.send(result);
       }
     });
   });
@@ -254,28 +259,9 @@ router.delete("/deletetasks",(req,res)=>{
 })
 
 
-
-
-
-//send email function
-function sendMail(email){
-  const msg = {
-    to: email,
-    from: 'prince.patel@jungleworks.com',
-    subject: 'Sending with SendGrid Is Fun',
-    text: 'and easy to do anywhere, even with Node.js',
-    html: '<strong>and easy to do anywhere, even with Node.js</strong>',
-};
-sendgrid
-    .send(msg)
-    .then((resp) => {
-      console.log('Email sent\n', resp)
-    })
-    .catch((error) => {
-      console.error(error)
-    })
-    
-  }
+// cron.schedule('0.1 * * * * *', () => {
+//   sendMail.sendMail("prince.patel@jungleworks.com");
+// });
 
 //express router
 app.use(router);
